@@ -1,7 +1,7 @@
 FROM debian:jessie
-MAINTAINER Lin Song <linsongui@gmail.com>
+MAINTAINER matsub <matsub.rk@gmail.com>
 
-ENV REFRESHED_AT 2017-03-23
+ENV REFRESHED_AT 2017-06-15
 ENV SWAN_VER 3.20
 
 WORKDIR /opt/src
