@@ -108,6 +108,8 @@ XAUTH_NET=${VPN_XAUTH_NET:-'192.168.43.0/24'}
 XAUTH_POOL=${VPN_XAUTH_POOL:-'192.168.43.10-192.168.43.250'}
 DNS_SRV1=${VPN_DNS_SRV1:-'8.8.8.8'}
 DNS_SRV2=${VPN_DNS_SRV2:-'8.8.4.4'}
+IKE_PORT=${IKE_PORT:-'500'}
+IKE_NAT_PORT=${IKE_NAT_PORT:-'4500'}
 
 # Create IPsec (Libreswan) config
 cat > /etc/ipsec.conf <<EOF
@@ -237,7 +239,7 @@ $SYST net.ipv4.icmp_ignore_bogus_error_responses=1
 iptables -I INPUT 1 -p udp --dport 1701 -m policy --dir in --pol none -j DROP
 iptables -I INPUT 2 -m conntrack --ctstate INVALID -j DROP
 iptables -I INPUT 3 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-iptables -I INPUT 4 -p udp -m multiport --dports 500,4500 -j ACCEPT
+iptables -I INPUT 4 -p udp -m multiport --dports $IKE_PORT,$IKE_NAT_PORT -j ACCEPT
 iptables -I INPUT 5 -p udp --dport 1701 -m policy --dir in --pol ipsec -j ACCEPT
 iptables -I INPUT 6 -p udp --dport 1701 -j DROP
 iptables -I FORWARD 1 -m conntrack --ctstate INVALID -j DROP
@@ -268,6 +270,7 @@ Server IP: $PUBLIC_IP
 IPsec PSK: $VPN_IPSEC_PSK
 Username: $VPN_USER
 Password: $VPN_PASSWORD
+IKE port: $IKE_PORT
 
 Write these down. You'll need them to connect!
 
