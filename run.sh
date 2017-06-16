@@ -1,5 +1,7 @@
 #!/bin/sh
 #
+# The original LICENSE is below::
+#
 # Docker script to configure and start an IPsec VPN server
 #
 # DO NOT RUN THIS SCRIPT ON YOUR PC OR MAC! THIS IS ONLY MEANT TO BE RUN
@@ -121,6 +123,8 @@ config setup
   nhelpers=0
   interfaces=%defaultroute
   uniqueids=no
+  ikeport=$IKE_PORT
+  nat-ikeport=$IKE_NAT_PORT
 
 conn shared
   left=%defaultroute
