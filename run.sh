@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # The original LICENSE is below::
 #
@@ -30,6 +30,58 @@ check_ip() {
   printf %s "$1" | tr -d '\n' | grep -Eq "$IP_REGEX"
 }
 
+# Create VPN credentials
+init_credential() {
+cat > /etc/ppp/chap-secrets <<EOF
+# Secrets for authentication using CHAP
+# client  server  secret  IP addresses
+EOF
+
+echo -n "" > /etc/ipsec.d/passwd
+}
+
+create_credential() {
+cat <<EOF
+    Username: $1
+    Password: $2
+
+EOF
+
+cat >> /etc/ppp/chap-secrets <<EOF
+"$1" l2tpd "$2" *
+EOF
+
+VPN_PASSWORD_ENC=$(openssl passwd -1 "$2")
+cat >> /etc/ipsec.d/passwd <<EOF
+$1:$VPN_PASSWORD_ENC:xauth-psk
+EOF
+}
+
+add_user() {
+    CREDENTIAL=(${1//:/ })
+    # Remove whitespace and quotes around VPN variables, if any
+    VPN_USER="$(nospaces "${CREDENTIAL[0]}")"
+    VPN_USER="$(noquotes "$VPN_USER")"
+    VPN_PASSWORD="$(nospaces "${CREDENTIAL[1]}")"
+    VPN_PASSWORD="$(noquotes "$VPN_PASSWORD")"
+
+    if [ -z "$VPN_USER" ] || [ -z "$VPN_PASSWORD" ]; then
+        exiterr "All VPN credentials must be specified. Edit your 'env' file and re-enter them."
+    fi
+
+    if printf %s "$VPN_USER $VPN_PASSWORD" | LC_ALL=C grep -q '[^ -~]\+'; then
+        exiterr "VPN credentials must not contain non-ASCII characters."
+    fi
+
+    case "$VPN_USER $VPN_PASSWORD" in
+        *[\\\"\']*)
+            exiterr "VPN credentials must not contain the following characters: \\ \" '"
+            ;;
+    esac
+
+    create_credential $VPN_USER $VPN_PASSWORD
+}
+
 if [ ! -f "/.dockerenv" ]; then
   exiterr "This script ONLY runs in a Docker container."
 fi
@@ -45,49 +97,6 @@ EOF
   exit 1
 fi
 ip link delete dummy0 >/dev/null 2>&1
-
-mkdir -p /opt/src
-vpn_env="/opt/src/vpn-gen.env"
-if [ -z "$VPN_IPSEC_PSK" ] && [ -z "$VPN_USER" ] && [ -z "$VPN_PASSWORD" ]; then
-  if [ -f "$vpn_env" ]; then
-    echo
-    echo "Retrieving previously generated VPN credentials..."
-    . "$vpn_env"
-  else
-    echo
-    echo "VPN credentials not set by user. Generating random PSK and password..."
-    VPN_IPSEC_PSK="$(LC_CTYPE=C tr -dc 'A-HJ-NPR-Za-km-z2-9' < /dev/urandom | head -c 16)"
-    VPN_USER=vpnuser
-    VPN_PASSWORD="$(LC_CTYPE=C tr -dc 'A-HJ-NPR-Za-km-z2-9' < /dev/urandom | head -c 16)"
-
-    echo "VPN_IPSEC_PSK=$VPN_IPSEC_PSK" > "$vpn_env"
-    echo "VPN_USER=$VPN_USER" >> "$vpn_env"
-    echo "VPN_PASSWORD=$VPN_PASSWORD" >> "$vpn_env"
-    chmod 600 "$vpn_env"
-  fi
-fi
-
-# Remove whitespace and quotes around VPN variables, if any
-VPN_IPSEC_PSK="$(nospaces "$VPN_IPSEC_PSK")"
-VPN_IPSEC_PSK="$(noquotes "$VPN_IPSEC_PSK")"
-VPN_USER="$(nospaces "$VPN_USER")"
-VPN_USER="$(noquotes "$VPN_USER")"
-VPN_PASSWORD="$(nospaces "$VPN_PASSWORD")"
-VPN_PASSWORD="$(noquotes "$VPN_PASSWORD")"
-
-if [ -z "$VPN_IPSEC_PSK" ] || [ -z "$VPN_USER" ] || [ -z "$VPN_PASSWORD" ]; then
-  exiterr "All VPN credentials must be specified. Edit your 'env' file and re-enter them."
-fi
-
-if printf %s "$VPN_IPSEC_PSK $VPN_USER $VPN_PASSWORD" | LC_ALL=C grep -q '[^ -~]\+'; then
-  exiterr "VPN credentials must not contain non-ASCII characters."
-fi
-
-case "$VPN_IPSEC_PSK $VPN_USER $VPN_PASSWORD" in
-  *[\\\"\']*)
-    exiterr "VPN credentials must not contain the following characters: \\ \" '"
-    ;;
-esac
 
 echo
 echo 'Trying to auto discover IP of this server...'
@@ -169,6 +178,8 @@ conn xauth-psk
 EOF
 
 # Specify IPsec PSK
+VPN_IPSEC_PSK="$(nospaces "$VPN_IPSEC_PSK")"
+VPN_IPSEC_PSK="$(noquotes "$VPN_IPSEC_PSK")"
 cat > /etc/ipsec.secrets <<EOF
 %any  %any  : PSK "$VPN_IPSEC_PSK"
 EOF
@@ -206,16 +217,23 @@ connect-delay 5000
 EOF
 
 # Create VPN credentials
-cat > /etc/ppp/chap-secrets <<EOF
-# Secrets for authentication using CHAP
-# client  server  secret  IP addresses
-"$VPN_USER" l2tpd "$VPN_PASSWORD" *
+cat <<EOF
+
+================================================
+
+Setting up Users...
+
+================================================
+
 EOF
 
-VPN_PASSWORD_ENC=$(openssl passwd -1 "$VPN_PASSWORD")
-cat > /etc/ipsec.d/passwd <<EOF
-$VPN_USER:$VPN_PASSWORD_ENC:xauth-psk
-EOF
+init_credential
+
+VPN_USERS=(${VPN_USERS//,/ })
+for user in ${VPN_USERS[@]};do
+    add_user $user
+done
+
 
 # Update sysctl settings
 SYST='/sbin/sysctl -e -q -w'
@@ -272,8 +290,6 @@ Connect to your new VPN with these details:
 
 Server IP: $PUBLIC_IP
 IPsec PSK: $VPN_IPSEC_PSK
-Username: $VPN_USER
-Password: $VPN_PASSWORD
 IKE port: $IKE_PORT
 
 Write these down. You'll need them to connect!
